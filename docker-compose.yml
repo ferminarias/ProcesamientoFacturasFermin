@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database (alternative to Supabase for local development)
+  postgres:
+    image: postgres:16-alpine
+    container_name: facturas-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: facturas
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and queues
+  redis:
+    image: redis:7-alpine
+    container_name: facturas-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Next.js Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: facturas-app
+    ports:
+      - '3000:3000'
+    environment:
+      # Database (use Supabase in production, local Postgres for development)
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/facturas?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@postgres:5432/facturas?schema=public
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+      # Google OAuth (optional)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+
+      # App Config
+      NEXT_PUBLIC_URL: http://localhost:3000
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./prisma:/app/prisma
+    command: >
+      sh -c "
+        npx prisma migrate deploy &&
+        npm start
+      "
+
+  # Worker for processing queue jobs (optional)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: facturas-worker
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/facturas?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      NODE_ENV: production
+    depends_on:
+      - postgres
+      - redis
+    command: node -e "console.log('Worker process - implement queue processor here')"
+    # In production, replace with: node scripts/worker.js
+
+volumes:
+  postgres_data:
+  redis_data:
