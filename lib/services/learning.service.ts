@@ -1,263 +1,460 @@
-import { prisma } from '@/lib/database/prisma.client';
+import { prisma } from '@/lib/db/prisma';
+import { DocumentType, LearningRuleType } from '@prisma/client';
 
 /**
- * Servicio de aprendizaje automático basado en feedback de usuarios
- * Analiza correcciones para mejorar prompts y precisión
+ * Sistema de aprendizaje para extracción adaptativa de documentos
+ *
+ * Este servicio permite:
+ * - Obtener configuraciones aprendidas por proveedor/tipo de documento
+ * - Aplicar reglas de transformación a datos extraídos
+ * - Guardar correcciones de usuario como nuevas reglas
+ * - Actualizar prompts y configuraciones basándose en feedback
  */
-export class LearningService {
-  /**
-   * Registra feedback de usuario cuando corrige datos extraídos
-   */
-  static async recordFeedback(params: {
-    documentId: string;
-    tenantId: string;
-    originalData: any;
-    correctedData: any;
-    userId?: string;
-  }) {
-    const { documentId, tenantId, originalData, correctedData, userId } = params;
 
-    // Encontrar diferencias entre original y corregido
-    const corrections = this.findDifferences(originalData, correctedData);
+export interface ExtractionContext {
+  tenantId: string;
+  documentType: DocumentType;
+  supplierName?: string;
+  supplierCuit?: string;
+}
 
-    if (corrections.length === 0) {
-      console.log('[Learning] No se encontraron correcciones');
-      return null;
-    }
+export interface FieldCorrection {
+  field: string;
+  originalValue: any;
+  correctedValue: any;
+  correctionType: 'value' | 'mapping' | 'calculation' | 'regex';
+}
 
-    // Guardar feedback en base de datos
-    const feedback = await prisma.documentFeedback.create({
-      data: {
-        documentId,
-        originalData: originalData as any,
-        correctedData: correctedData as any,
-        corrections: corrections as any,
-        userId,
-      },
-    });
+/**
+ * Obtiene la configuración aprendida para un tipo de documento y proveedor
+ */
+export async function getLearnedConfiguration(context: ExtractionContext) {
+  const { tenantId, documentType, supplierCuit } = context;
 
-    console.log(`[Learning] Registrado feedback con ${corrections.length} correcciones`);
-
-    return feedback;
-  }
-
-  /**
-   * Encuentra diferencias entre dos objetos
-   */
-  private static findDifferences(original: any, corrected: any, path: string = ''): Array<{
-    field: string;
-    originalValue: any;
-    correctedValue: any;
-    correctionType: string;
-  }> {
-    const corrections: any[] = [];
-
-    // Comparar cada campo
-    for (const key in corrected) {
-      const fullPath = path ? `${path}.${key}` : key;
-      const originalValue = original?.[key];
-      const correctedValue = corrected[key];
-
-      // Si los valores son diferentes
-      if (JSON.stringify(originalValue) !== JSON.stringify(correctedValue)) {
-        // Determinar tipo de corrección
-        let correctionType = 'modification';
-
-        if (originalValue === null || originalValue === undefined) {
-          correctionType = 'addition';
-        } else if (typeof originalValue === 'string' && typeof correctedValue === 'string') {
-          // Detectar typos (similitud > 80%)
-          const similarity = this.stringSimilarity(originalValue, correctedValue);
-          if (similarity > 0.8) {
-            correctionType = 'typo';
-          }
-        } else if (typeof originalValue === 'number' && typeof correctedValue === 'number') {
-          correctionType = 'numeric_correction';
-        }
-
-        corrections.push({
-          field: fullPath,
-          originalValue,
-          correctedValue,
-          correctionType,
-        });
-      }
-
-      // Recursivo para objetos anidados
-      if (
-        typeof correctedValue === 'object' &&
-        correctedValue !== null &&
-        !Array.isArray(correctedValue)
-      ) {
-        const nestedCorrections = this.findDifferences(
-          originalValue || {},
-          correctedValue,
-          fullPath
-        );
-        corrections.push(...nestedCorrections);
-      }
-    }
-
-    return corrections;
-  }
-
-  /**
-   * Calcula similitud entre dos strings (Levenshtein simplificado)
-   */
-  private static stringSimilarity(str1: string, str2: string): number {
-    const longer = str1.length > str2.length ? str1 : str2;
-    const shorter = str1.length > str2.length ? str2 : str1;
-
-    if (longer.length === 0) return 1.0;
-
-    const editDistance = this.levenshteinDistance(longer, shorter);
-    return (longer.length - editDistance) / longer.length;
-  }
-
-  /**
-   * Distancia de Levenshtein (número de ediciones para transformar un string en otro)
-   */
-  private static levenshteinDistance(str1: string, str2: string): number {
-    const matrix: number[][] = [];
-
-    for (let i = 0; i <= str2.length; i++) {
-      matrix[i] = [i];
-    }
-
-    for (let j = 0; j <= str1.length; j++) {
-      matrix[0][j] = j;
-    }
-
-    for (let i = 1; i <= str2.length; i++) {
-      for (let j = 1; j <= str1.length; j++) {
-        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-          matrix[i][j] = matrix[i - 1][j - 1];
-        } else {
-          matrix[i][j] = Math.min(
-            matrix[i - 1][j - 1] + 1, // substitution
-            matrix[i][j - 1] + 1, // insertion
-            matrix[i - 1][j] + 1 // deletion
-          );
-        }
-      }
-    }
-
-    return matrix[str2.length][str1.length];
-  }
-
-  /**
-   * Obtiene estadísticas de feedback para análisis
-   */
-  static async getFeedbackStats(tenantId: string) {
-    const feedbacks = await prisma.documentFeedback.findMany({
+  if (!supplierCuit) {
+    // Si no hay CUIT, buscar configuración genérica por tipo
+    return await prisma.extractionConfiguration.findFirst({
       where: {
-        document: { tenantId },
+        tenantId,
+        documentType,
+        supplierCuit: null,
       },
-      include: {
-        document: {
-          select: {
-            classification: true,
-          },
-        },
+      orderBy: {
+        lastUsedAt: 'desc',
       },
     });
-
-    // Agrupar por tipo de documento
-    const byType: Record<string, any> = {};
-
-    feedbacks.forEach((feedback) => {
-      const docType = (feedback.document.classification as any)?.type || 'unknown';
-
-      if (!byType[docType]) {
-        byType[docType] = {
-          type: docType,
-          totalCorrections: 0,
-          correctionTypes: {} as Record<string, number>,
-          commonFields: {} as Record<string, number>,
-        };
-      }
-
-      const corrections = feedback.corrections as any[];
-      byType[docType].totalCorrections += corrections.length;
-
-      corrections.forEach((correction: any) => {
-        // Contar tipos de corrección
-        byType[docType].correctionTypes[correction.correctionType] =
-          (byType[docType].correctionTypes[correction.correctionType] || 0) + 1;
-
-        // Contar campos más corregidos
-        byType[docType].commonFields[correction.field] =
-          (byType[docType].commonFields[correction.field] || 0) + 1;
-      });
-    });
-
-    return {
-      totalFeedbacks: feedbacks.length,
-      byType: Object.values(byType),
-    };
   }
 
-  /**
-   * Genera recomendaciones para mejorar prompts basado en feedback
-   */
-  static async generatePromptImprovements(documentType: string, tenantId: string) {
-    const feedbacks = await prisma.documentFeedback.findMany({
-      where: {
-        document: {
-          tenantId,
-          classification: {
-            path: ['type'],
-            equals: documentType,
-          },
-        },
+  // Buscar configuración específica del proveedor
+  const config = await prisma.extractionConfiguration.findUnique({
+    where: {
+      tenantId_documentType_supplierCuit: {
+        tenantId,
+        documentType,
+        supplierCuit,
       },
-      orderBy: { createdAt: 'desc' },
-      take: 50, // Últimos 50 feedbacks
-    });
+    },
+  });
 
-    if (feedbacks.length === 0) {
-      return null;
-    }
+  return config;
+}
 
-    // Analizar correcciones más comunes
-    const fieldCorrections: Record<string, number> = {};
-    const typos: Array<{ original: string; corrected: string }> = [];
+/**
+ * Obtiene todas las reglas de aprendizaje aplicables a un documento
+ */
+export async function getLearningRules(context: ExtractionContext, configurationId?: string) {
+  const { tenantId, documentType } = context;
 
-    feedbacks.forEach((feedback) => {
-      const corrections = feedback.corrections as any[];
-
-      corrections.forEach((correction: any) => {
-        fieldCorrections[correction.field] =
-          (fieldCorrections[correction.field] || 0) + 1;
-
-        if (correction.correctionType === 'typo') {
-          typos.push({
-            original: correction.originalValue,
-            corrected: correction.correctedValue,
-          });
-        }
-      });
-    });
-
-    // Campos más problemáticos (top 5)
-    const problematicFields = Object.entries(fieldCorrections)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5)
-      .map(([field, count]) => ({
-        field,
-        correctionCount: count,
-        percentage: ((count / feedbacks.length) * 100).toFixed(1),
-      }));
-
-    return {
+  const rules = await prisma.learningRule.findMany({
+    where: {
+      tenantId,
       documentType,
-      feedbackCount: feedbacks.length,
-      problematicFields,
-      typos: typos.slice(0, 10), // Top 10 typos
-      recommendation:
-        problematicFields.length > 0
-          ? `Los campos ${problematicFields.map((f) => f.field).join(', ')} necesitan mejoras en el prompt de extracción.`
-          : 'El extractor está funcionando correctamente.',
-    };
+      ...(configurationId && { configurationId }),
+    },
+    orderBy: {
+      successRate: 'desc',
+    },
+  });
+
+  return rules;
+}
+
+/**
+ * Aplica reglas de aprendizaje a los datos extraídos
+ */
+export function applyLearningRules(extractedData: any, rules: any[], config?: any): any {
+  let transformedData = { ...extractedData };
+
+  // 1. Aplicar defaults de la configuración
+  if (config?.fieldDefaults) {
+    const defaults = config.fieldDefaults as Record<string, any>;
+    for (const [field, defaultValue] of Object.entries(defaults)) {
+      if (!transformedData[field] || transformedData[field] === '') {
+        transformedData[field] = defaultValue;
+      }
+    }
+  }
+
+  // 2. Aplicar mapeos de campos
+  if (config?.fieldMappings) {
+    const mappings = config.fieldMappings as Record<string, string>;
+    for (const [sourceField, targetField] of Object.entries(mappings)) {
+      if (transformedData[sourceField] !== undefined) {
+        transformedData[targetField] = transformedData[sourceField];
+      }
+    }
+  }
+
+  // 3. Aplicar reglas de transformación
+  for (const rule of rules) {
+    const { fieldName, ruleType } = rule;
+
+    // Verificar condiciones si existen
+    if (rule.conditions && !evaluateConditions(transformedData, rule.conditions)) {
+      continue;
+    }
+
+    const currentValue = transformedData[fieldName];
+    if (currentValue === undefined) continue;
+
+    let newValue: any;
+
+    switch (ruleType) {
+      case LearningRuleType.REPLACE:
+        if (currentValue === rule.pattern) {
+          newValue = rule.replacement;
+        }
+        break;
+
+      case LearningRuleType.REGEX:
+        if (typeof currentValue === 'string' && rule.pattern) {
+          try {
+            const regex = new RegExp(rule.pattern);
+            newValue = currentValue.replace(regex, rule.replacement || '');
+          } catch (error) {
+            console.error(`Error applying regex rule for ${fieldName}:`, error);
+          }
+        }
+        break;
+
+      case LearningRuleType.MAPPING:
+        if (rule.mapping) {
+          const mapping = rule.mapping as Record<string, any>;
+          newValue = mapping[currentValue] || currentValue;
+        }
+        break;
+
+      case LearningRuleType.CALCULATION:
+        if (rule.formula) {
+          try {
+            newValue = evaluateFormula(rule.formula, transformedData);
+          } catch (error) {
+            console.error(`Error evaluating formula for ${fieldName}:`, error);
+          }
+        }
+        break;
+    }
+
+    if (newValue !== undefined) {
+      transformedData[fieldName] = newValue;
+
+      // Actualizar estadísticas de la regla
+      updateRuleStatistics(rule.id, true).catch(console.error);
+    }
+  }
+
+  return transformedData;
+}
+
+/**
+ * Guarda correcciones de usuario y genera nuevas reglas de aprendizaje
+ */
+export async function saveUserCorrections(
+  documentId: string,
+  userId: string,
+  tenantId: string,
+  documentType: DocumentType,
+  corrections: FieldCorrection[],
+  supplierCuit?: string
+) {
+  // 1. Guardar feedback
+  const feedback = await prisma.documentFeedback.create({
+    data: {
+      documentId,
+      userId,
+      corrections,
+    },
+  });
+
+  // 2. Obtener o crear configuración
+  let config = await prisma.extractionConfiguration.findFirst({
+    where: {
+      tenantId,
+      documentType,
+      supplierCuit: supplierCuit || null,
+    },
+  });
+
+  if (!config) {
+    config = await prisma.extractionConfiguration.create({
+      data: {
+        tenantId,
+        documentType,
+        supplierCuit,
+        createdBy: userId,
+      },
+    });
+  }
+
+  // 3. Generar reglas de aprendizaje desde las correcciones
+  const learningRulesPromises = corrections.map(async (correction) => {
+    const { field, originalValue, correctedValue, correctionType } = correction;
+
+    // Detectar tipo de regla basado en la corrección
+    let ruleType: LearningRuleType;
+    let pattern: string | null = null;
+    let replacement: string | null = null;
+    let mapping: any = null;
+    let formula: string | null = null;
+
+    switch (correctionType) {
+      case 'value':
+        // Reemplazo simple
+        ruleType = LearningRuleType.REPLACE;
+        pattern = String(originalValue);
+        replacement = String(correctedValue);
+        break;
+
+      case 'mapping':
+        // Crear mapeo
+        ruleType = LearningRuleType.MAPPING;
+        mapping = { [originalValue]: correctedValue };
+        break;
+
+      case 'regex':
+        // Transformación regex
+        ruleType = LearningRuleType.REGEX;
+        pattern = String(originalValue);
+        replacement = String(correctedValue);
+        break;
+
+      case 'calculation':
+        // Fórmula de cálculo
+        ruleType = LearningRuleType.CALCULATION;
+        formula = String(correctedValue);
+        break;
+
+      default:
+        ruleType = LearningRuleType.REPLACE;
+        pattern = String(originalValue);
+        replacement = String(correctedValue);
+    }
+
+    // Verificar si ya existe una regla similar
+    const existingRule = await prisma.learningRule.findFirst({
+      where: {
+        tenantId,
+        documentType,
+        fieldName: field,
+        ruleType,
+        pattern,
+      },
+    });
+
+    if (existingRule) {
+      // Actualizar regla existente
+      return prisma.learningRule.update({
+        where: { id: existingRule.id },
+        data: {
+          replacement,
+          mapping: mapping || existingRule.mapping,
+          formula: formula || existingRule.formula,
+          timesApplied: existingRule.timesApplied + 1,
+          updatedAt: new Date(),
+        },
+      });
+    } else {
+      // Crear nueva regla
+      return prisma.learningRule.create({
+        data: {
+          tenantId,
+          documentType,
+          fieldName: field,
+          ruleType,
+          pattern,
+          replacement,
+          mapping,
+          formula,
+          configurationId: config!.id,
+          createdFrom: feedback.id,
+        },
+      });
+    }
+  });
+
+  const learningRules = await Promise.all(learningRulesPromises);
+
+  // 4. Actualizar estadísticas de configuración
+  await prisma.extractionConfiguration.update({
+    where: { id: config.id },
+    data: {
+      correctionCount: config.correctionCount + 1,
+      lastUsedAt: new Date(),
+    },
+  });
+
+  return { feedback, learningRules };
+}
+
+/**
+ * Construye un prompt personalizado basado en configuración aprendida
+ */
+export function buildCustomPrompt(basePrompt: string, config?: any): string {
+  if (!config?.customPrompt) {
+    return basePrompt;
+  }
+
+  return `${basePrompt}
+
+INSTRUCCIONES ADICIONALES APRENDIDAS:
+${config.customPrompt}`;
+}
+
+/**
+ * Actualiza la configuración con un prompt personalizado
+ */
+export async function updateCustomPrompt(
+  configId: string,
+  customPrompt: string
+) {
+  return await prisma.extractionConfiguration.update({
+    where: { id: configId },
+    data: { customPrompt },
+  });
+}
+
+/**
+ * Marca una configuración como exitosa (incrementa contador)
+ */
+export async function markConfigurationSuccess(configId: string) {
+  const config = await prisma.extractionConfiguration.findUnique({
+    where: { id: configId },
+  });
+
+  if (config) {
+    await prisma.extractionConfiguration.update({
+      where: { id: configId },
+      data: {
+        successCount: config.successCount + 1,
+        lastUsedAt: new Date(),
+      },
+    });
+  }
+}
+
+// ============================================================================
+// FUNCIONES AUXILIARES
+// ============================================================================
+
+/**
+ * Evalúa condiciones para aplicar una regla
+ */
+function evaluateConditions(data: any, conditions: any): boolean {
+  // Implementación simple de evaluación de condiciones
+  // Ejemplo de conditions: { "campo": "valor", "otro_campo": { "$gt": 100 } }
+
+  for (const [field, condition] of Object.entries(conditions)) {
+    const value = data[field];
+
+    if (typeof condition === 'object' && condition !== null) {
+      // Operadores
+      for (const [operator, expected] of Object.entries(condition)) {
+        switch (operator) {
+          case '$eq':
+            if (value !== expected) return false;
+            break;
+          case '$ne':
+            if (value === expected) return false;
+            break;
+          case '$gt':
+            if (!(value > expected)) return false;
+            break;
+          case '$gte':
+            if (!(value >= expected)) return false;
+            break;
+          case '$lt':
+            if (!(value < expected)) return false;
+            break;
+          case '$lte':
+            if (!(value <= expected)) return false;
+            break;
+          case '$in':
+            if (!Array.isArray(expected) || !expected.includes(value)) return false;
+            break;
+        }
+      }
+    } else {
+      // Comparación directa
+      if (value !== condition) return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Evalúa una fórmula simple
+ */
+function evaluateFormula(formula: string, data: any): any {
+  // Implementación básica de evaluación de fórmulas
+  // Soporta referencias a campos con ${campo} y operaciones matemáticas simples
+
+  let evaluatedFormula = formula;
+
+  // Reemplazar referencias a campos
+  const fieldReferences = formula.match(/\$\{(\w+)\}/g);
+  if (fieldReferences) {
+    for (const ref of fieldReferences) {
+      const fieldName = ref.slice(2, -1); // Quitar ${ y }
+      const value = data[fieldName] || 0;
+      evaluatedFormula = evaluatedFormula.replace(ref, String(value));
+    }
+  }
+
+  // Evaluar expresión matemática (usando Function es más seguro que eval)
+  try {
+    // Sanitizar la fórmula para evitar inyección
+    const sanitized = evaluatedFormula.replace(/[^0-9+\-*/(). ]/g, '');
+    const result = Function(`"use strict"; return (${sanitized})`)();
+    return result;
+  } catch (error) {
+    console.error('Error evaluating formula:', error);
+    return null;
+  }
+}
+
+/**
+ * Actualiza estadísticas de una regla
+ */
+async function updateRuleStatistics(ruleId: string, success: boolean) {
+  const rule = await prisma.learningRule.findUnique({
+    where: { id: ruleId },
+  });
+
+  if (rule) {
+    const newTimesApplied = rule.timesApplied + 1;
+    const successCount = success
+      ? Math.round(rule.successRate * rule.timesApplied) + 1
+      : Math.round(rule.successRate * rule.timesApplied);
+
+    const newSuccessRate = successCount / newTimesApplied;
+
+    await prisma.learningRule.update({
+      where: { id: ruleId },
+      data: {
+        timesApplied: newTimesApplied,
+        successRate: newSuccessRate,
+      },
+    });
   }
 }

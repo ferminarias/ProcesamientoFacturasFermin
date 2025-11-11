@@ -2,16 +2,20 @@ import { Job } from 'bull'
 import { DocumentJobData, DocumentJobResult } from '../queue.config'
 import { classifyDocument } from '@/lib/services/classifier'
 import { extractData } from '@/lib/services/extractors'
+import { saveToSpecializedTable, detectSupplierInfo } from '@/lib/services/extractors/adaptive-extractor'
 import { prisma } from '@/lib/db/prisma'
 import { DocumentStatus, DocumentType } from '@/shared/types/document.types'
+import { DocumentType as PrismaDocumentType } from '@prisma/client'
 
 /**
- * Procesa un documento: clasifica y extrae datos
+ * Procesa un documento: clasifica, extrae datos y guarda en tablas especializadas
  * MULTI-TENANT: Incluye tenantId para aislamiento
+ * LEARNING: Usa aprendizaje adaptativo basado en feedback
  */
 export async function processDocument(job: Job<DocumentJobData>): Promise<DocumentJobResult> {
   const { documentId, tenantId, userId, fileName, fileUrl } = job.data
-  
+  const startTime = Date.now()
+
   try {
     // Verificar que el documento pertenece al tenant (seguridad multi-tenant)
     const document = await prisma.document.findFirst({
@@ -56,18 +60,73 @@ export async function processDocument(job: Job<DocumentJobData>): Promise<Docume
 
     job.progress(50)
 
-    // Paso 2: Extraer datos según el tipo
-    const extractedData = await extractData(fileUrl, classification.tipo_documento)
-    
-    job.progress(90)
+    // Paso 2: Extraer datos según el tipo con aprendizaje adaptativo
+    const prismaDocType = classification.tipo_documento as unknown as PrismaDocumentType
 
-    // Actualizar documento con datos extraídos
+    // Crear contexto de extracción con tenantId para usar aprendizaje
+    const extractionContext = {
+      tenantId,
+      documentType: prismaDocType,
+    }
+
+    const extractionResult = await extractData(
+      fileUrl,
+      classification.tipo_documento,
+      extractionContext
+    )
+
+    const extractedData = extractionResult.data
+    const configId = extractionResult.configId
+
+    // Detectar información del proveedor desde los datos extraídos
+    const supplierInfo = detectSupplierInfo(extractedData)
+
+    job.progress(75)
+
+    // Actualizar documento con datos extraídos y clasificación completa
     await prisma.document.update({
       where: { id: documentId },
       data: {
         extractedData: extractedData as any,
         status: 'VALIDATING',
         processedAt: new Date(),
+        processingTime: Date.now() - startTime,
+        classification: {
+          tipo_documento: classification.tipo_documento,
+          subtipo: classification.subtipo,
+          confianza: classification.confianza,
+          razon_clasificacion: classification.razon_clasificacion,
+          supplierCuit: supplierInfo.cuit,
+          supplierName: supplierInfo.name,
+          configId, // Almacenar qué configuración se usó
+        } as any,
+      },
+    })
+
+    job.progress(85)
+
+    // Paso 3: Guardar en tabla especializada
+    try {
+      await saveToSpecializedTable(
+        documentId,
+        tenantId,
+        prismaDocType,
+        extractedData,
+        prisma
+      )
+      console.log(`[Processor] Datos guardados en tabla especializada para ${classification.tipo_documento}`)
+    } catch (error) {
+      console.error('[Processor] Error guardando en tabla especializada:', error)
+      // No fallar el procesamiento completo si falla el guardado en tabla especializada
+    }
+
+    job.progress(95)
+
+    // Marcar como completado
+    await prisma.document.update({
+      where: { id: documentId },
+      data: {
+        status: 'COMPLETED',
       },
     })
 
@@ -79,6 +138,7 @@ export async function processDocument(job: Job<DocumentJobData>): Promise<Docume
       classification,
       extractedData,
       success: true,
+      configId, // Incluir ID de configuración usada
     }
   } catch (error) {
     console.error(`Error procesando documento ${documentId}:`, error)

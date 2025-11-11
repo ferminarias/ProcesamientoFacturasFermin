@@ -1,15 +1,21 @@
 import OpenAI from 'openai'
 import { env } from '@/lib/config/env'
 import { FacturaData } from '@/shared/types/document.types'
+import { DocumentType } from '@prisma/client'
+import { extractWithLearning, detectSupplierInfo } from './adaptive-extractor'
+import type { ExtractionContext } from '@/lib/services/learning.service'
 
 const openai = new OpenAI({
   apiKey: env.OPENAI_API_KEY,
 })
 
 /**
- * Extrae información de una factura argentina
+ * Extrae información de una factura argentina con aprendizaje adaptativo
  */
-export async function extractFacturaData(imageUrl: string): Promise<FacturaData> {
+export async function extractFacturaData(
+  imageUrl: string,
+  context?: ExtractionContext
+): Promise<{ data: FacturaData; configId?: string }> {
   const extractionPrompt = `
 Extrae TODA la información de esta factura argentina.
 
@@ -97,31 +103,50 @@ IMPORTANTE: Responde SOLO con el JSON, sin texto adicional.
 `
 
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: extractionPrompt },
-            {
-              type: 'image_url',
-              image_url: {
-                url: imageUrl,
-                detail: 'high',
+    // Si no se proporciona contexto, hacer extracción básica sin aprendizaje
+    if (!context) {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: extractionPrompt },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: imageUrl,
+                  detail: 'high',
+                },
               },
-            },
-          ],
-        },
-      ],
-      max_tokens: 4000,
-      response_format: { type: 'json_object' },
+            ],
+          },
+        ],
+        max_tokens: 4000,
+        response_format: { type: 'json_object' },
+      })
+
+      const extractedData = JSON.parse(response.choices[0].message.content || '{}')
+      return {
+        data: validateAndNormalizeFacturaData(extractedData),
+      }
+    }
+
+    // Usar extracción adaptativa con aprendizaje
+    const result = await extractWithLearning<any>({
+      imageUrl,
+      basePrompt: extractionPrompt,
+      context,
+      maxTokens: 4000,
     })
 
-    const extractedData = JSON.parse(response.choices[0].message.content || '{}')
-    
     // Validar y normalizar datos
-    return validateAndNormalizeFacturaData(extractedData)
+    const normalizedData = validateAndNormalizeFacturaData(result.data)
+
+    return {
+      data: normalizedData,
+      configId: result.configId,
+    }
   } catch (error) {
     console.error('Error en extracción de factura:', error)
     throw new Error(`Error al extraer datos de factura: ${error instanceof Error ? error.message : 'Unknown error'}`)

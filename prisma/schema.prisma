@@ -128,7 +128,15 @@ model Document {
   user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   feedbacks         DocumentFeedback[]
   exports           ExportLog[]
-  
+
+  // Relaciones con tablas especializadas
+  factura           Factura?
+  resumenTarjeta    ResumenTarjeta?
+  servicio          Servicio?
+  impuesto          Impuesto?
+  ticket            Ticket?
+  driveFile         DriveFile?
+
   @@index([tenantId, userId]) // Índice compuesto para consultas multi-tenant
   @@index([tenantId, status])
   @@index([tenantId, documentType])
@@ -142,20 +150,382 @@ model DocumentFeedback {
   id              String   @id @default(cuid())
   documentId      String
   userId          String
-  
+
   // Correcciones realizadas
   corrections     Json     // Array de { field, originalValue, correctedValue, correctionType }
-  
+
   // Metadata
   createdAt       DateTime @default(now())
-  
+
   // Relaciones
   document        Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@index([documentId])
   @@index([userId])
   @@map("document_feedbacks")
+}
+
+// ==============================================================================
+// TABLAS ESPECIALIZADAS POR TIPO DE DOCUMENTO
+// ==============================================================================
+
+// Facturas - Datos estructurados de facturas
+model Factura {
+  id                String   @id @default(cuid())
+  documentId        String   @unique
+  tenantId          String
+
+  // Información básica
+  tipo              String   // A, B, C, E, M
+  numero            String
+  punto_venta       String?
+  fecha_emision     DateTime?
+
+  // Emisor
+  emisor_nombre     String?
+  emisor_cuit       String?
+  emisor_direccion  String?
+  emisor_condicion_iva String?
+
+  // Receptor
+  receptor_nombre   String?
+  receptor_cuit     String?
+  receptor_direccion String?
+  receptor_condicion_iva String?
+
+  // Items (JSON array)
+  items             Json?    // Array de items con código, descripción, cantidad, precio, etc.
+
+  // Totales
+  subtotal          Float?
+  iva_105           Float?
+  iva_21            Float?
+  iva_27            Float?
+  otros_impuestos   Float?
+  total             Float?
+
+  // Datos AFIP
+  cae               String?
+  vencimiento_cae   DateTime?
+  codigo_barras     String?
+  qr_data           String?
+
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relaciones
+  document          Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([emisor_cuit])
+  @@index([receptor_cuit])
+  @@index([fecha_emision])
+  @@map("facturas")
+}
+
+// Resúmenes de tarjeta de crédito
+model ResumenTarjeta {
+  id                String   @id @default(cuid())
+  documentId        String   @unique
+  tenantId          String
+
+  // Información básica
+  banco_emisor      String?
+  tipo_tarjeta      String?  // visa, mastercard, amex, etc.
+  numero_tarjeta_enmascarado String?
+  titular           String?
+  fecha_cierre      DateTime?
+  fecha_vencimiento DateTime?
+
+  // Resumen anterior
+  saldo_anterior    Float?
+  pago_anterior     Float?
+  ajustes           Float?
+
+  // Consumos (JSON array)
+  consumos          Json?    // Array de consumos con fecha, comercio, importe, etc.
+
+  // Totales
+  total_consumos    Float?
+  intereses         Float?
+  cargos_servicios  Float?
+  impuestos         Float?
+  total_resumen     Float?
+  pago_minimo       Float?
+  pago_total_sin_interes Float?
+
+  // Cuotas vigentes (JSON array)
+  cuotas_vigentes   Json?
+
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relaciones
+  document          Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([banco_emisor])
+  @@index([fecha_cierre])
+  @@map("resumenes_tarjeta")
+}
+
+// Servicios (luz, gas, agua, internet, etc.)
+model Servicio {
+  id                String   @id @default(cuid())
+  documentId        String   @unique
+  tenantId          String
+
+  // Información básica
+  tipo_servicio     String   // luz, gas, agua, internet, telefonia, cable
+  empresa_proveedora String?
+  numero_cuenta     String?
+  numero_medidor    String?
+  titular           String?
+  domicilio_suministro String?
+
+  // Período facturado
+  fecha_desde       DateTime?
+  fecha_hasta       DateTime?
+  dias_facturados   Int?
+
+  // Consumo
+  lectura_anterior  Float?
+  lectura_actual    Float?
+  consumo_unidades  Float?
+  unidad_medida     String?  // kWh, m3, MB
+  precio_unitario   Float?
+
+  // Cargos (JSON array)
+  cargos            Json?
+
+  // Totales
+  subtotal          Float?
+  iva               Float?
+  impuestos_municipales Float?
+  otros_cargos      Float?
+  total_a_pagar     Float?
+
+  // Vencimientos
+  primer_vencimiento DateTime?
+  segundo_vencimiento DateTime?
+  recargo_segundo_venc Float?
+
+  // Datos de pago
+  codigo_pago_electronico String?
+  codigo_barras     String?
+
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relaciones
+  document          Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tipo_servicio])
+  @@index([empresa_proveedora])
+  @@index([primer_vencimiento])
+  @@map("servicios")
+}
+
+// Impuestos (ARBA, ABL, Patente, etc.)
+model Impuesto {
+  id                String   @id @default(cuid())
+  documentId        String   @unique
+  tenantId          String
+
+  // Información básica
+  tipo_impuesto     String   // arba, abl, patente, iibb, monotributo, ganancias
+  organismo_recaudador String?
+  jurisdiccion      String?
+  contribuyente     String?
+  cuit_cuil         String?
+  domicilio         String?
+
+  // Liquidación
+  numero_partida    String?
+  numero_liquidacion String?
+  periodo_fiscal    String?
+  año_fiscal        Int?
+  anticipo_cuota    String?
+
+  // Deuda
+  capital           Float?
+  intereses         Float?
+  recargos          Float?
+  total_deuda       Float?
+
+  // Vencimientos (JSON array)
+  vencimientos      Json?
+
+  // Datos de pago
+  codigo_pago_electronico String?
+  cbu_debito_automatico String?
+
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relaciones
+  document          Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tipo_impuesto])
+  @@index([cuit_cuil])
+  @@map("impuestos")
+}
+
+// Tickets y comprobantes simples
+model Ticket {
+  id                String   @id @default(cuid())
+  documentId        String   @unique
+  tenantId          String
+
+  // Información básica
+  comercio          String?
+  direccion         String?
+  telefono          String?
+  cuit              String?
+
+  // Transacción
+  numero_ticket     String?
+  fecha_hora        DateTime?
+
+  // Items (JSON array)
+  items             Json?
+
+  // Totales
+  subtotal          Float?
+  descuentos        Float?
+  recargos          Float?
+  total             Float?
+
+  // Pago
+  metodo_pago       String?  // efectivo, tarjeta, transferencia
+
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relaciones
+  document          Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([comercio])
+  @@index([fecha_hora])
+  @@map("tickets")
+}
+
+// ==============================================================================
+// SISTEMA DE APRENDIZAJE
+// ==============================================================================
+
+// Configuraciones de extracción aprendidas por proveedor/tipo
+model ExtractionConfiguration {
+  id                String   @id @default(cuid())
+  tenantId          String
+
+  // Identificación
+  documentType      DocumentType
+  supplierName      String?  // Nombre del proveedor (ej: "Edenor", "Visa")
+  supplierCuit      String?  // CUIT del proveedor para matching exacto
+
+  // Prompt personalizado aprendido
+  customPrompt      String?  // Prompt adicional con instrucciones específicas
+
+  // Configuración de campos
+  fieldMappings     Json?    // Mapeo de campos: { "campo_documento": "campo_destino" }
+  fieldDefaults     Json?    // Valores por defecto para campos faltantes
+
+  // Reglas de validación aprendidas
+  validationRules   Json?    // Reglas específicas por campo
+
+  // Estadísticas
+  successCount      Int      @default(0)  // Veces que se aplicó exitosamente
+  correctionCount   Int      @default(0)  // Veces que se corrigió
+  lastUsedAt        DateTime?
+
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdBy         String?  // Usuario que generó la primera configuración
+
+  @@unique([tenantId, documentType, supplierCuit])
+  @@index([tenantId, documentType])
+  @@index([supplierName])
+  @@map("extraction_configurations")
+}
+
+// Reglas de aprendizaje - patrones específicos de corrección
+model LearningRule {
+  id                String   @id @default(cuid())
+  tenantId          String
+  configurationId   String?  // Opcional: vinculado a una configuración específica
+
+  // Patrón
+  documentType      DocumentType
+  fieldName         String   // Campo al que aplica la regla
+
+  // Transformación
+  ruleType          LearningRuleType  // REPLACE, REGEX, MAPPING, CALCULATION
+  pattern           String?  // Patrón a buscar (para REGEX)
+  replacement       String?  // Reemplazo (para REPLACE/REGEX)
+  mapping           Json?    // Diccionario de mapeo (para MAPPING)
+  formula           String?  // Fórmula de cálculo (para CALCULATION)
+
+  // Condiciones de aplicación
+  conditions        Json?    // Condiciones para aplicar la regla
+
+  // Estadísticas
+  timesApplied      Int      @default(0)
+  successRate       Float    @default(1.0)
+
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdFrom       String?  // ID del DocumentFeedback que la generó
+
+  @@index([tenantId, documentType])
+  @@index([tenantId, fieldName])
+  @@index([configurationId])
+  @@map("learning_rules")
+}
+
+// ==============================================================================
+// INTEGRACIÓN GOOGLE DRIVE
+// ==============================================================================
+
+// Archivos subidos a Google Drive
+model DriveFile {
+  id                String   @id @default(cuid())
+  documentId        String
+  tenantId          String
+
+  // Google Drive info
+  driveFileId       String   // ID del archivo en Google Drive
+  fileName          String
+  mimeType          String
+  webViewLink       String?  // Link para ver el archivo
+  webContentLink    String?  // Link para descargar
+
+  // Organización
+  folderId          String?  // ID de la carpeta en Drive
+  folderPath        String?  // Path de la carpeta (ej: "Facturas/2025/Enero")
+
+  // Metadata
+  uploadedAt        DateTime @default(now())
+  fileSize          Int?
+
+  // Relaciones
+  document          Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId])
+  @@index([tenantId])
+  @@index([driveFileId])
+  @@map("drive_files")
 }
 
 // Integraciones con servicios externos (multi-tenant)
@@ -331,5 +701,12 @@ enum TenantRole {
   ADMIN
   MEMBER
   VIEWER
+}
+
+enum LearningRuleType {
+  REPLACE       // Reemplazo simple de string
+  REGEX         // Transformación con regex
+  MAPPING       // Mapeo de valores (diccionario)
+  CALCULATION   // Cálculo basado en otros campos
 }
 
