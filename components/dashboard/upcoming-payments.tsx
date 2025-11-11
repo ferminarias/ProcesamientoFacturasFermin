@@ -93,36 +93,36 @@ export function UpcomingPaymentsWidget() {
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4">📅 Próximos Vencimientos</h3>
-        <div className="animate-pulse space-y-3">
-          <div className="h-16 bg-muted rounded"></div>
-          <div className="h-16 bg-muted rounded"></div>
-          <div className="h-16 bg-muted rounded"></div>
+      <Card className="p-4 sm:p-6">
+        <h3 className="text-base sm:text-lg font-semibold mb-4">📅 Próximos Vencimientos</h3>
+        <div className="animate-pulse space-y-2 sm:space-y-3">
+          <div className="h-12 sm:h-16 bg-muted rounded"></div>
+          <div className="h-12 sm:h-16 bg-muted rounded"></div>
+          <div className="h-12 sm:h-16 bg-muted rounded"></div>
         </div>
       </Card>
     );
   }
 
   return (
-    <Card className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          <Calendar className="h-5 w-5" />
+    <Card className="p-4 sm:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0 mb-4">
+        <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2">
+          <Calendar className="h-4 w-4 sm:h-5 sm:w-5" />
           Próximos Vencimientos
         </h3>
         {payments.length > 0 && (
-          <Badge variant="outline">
+          <Badge variant="outline" className="self-start sm:self-auto text-xs sm:text-sm">
             {payments.length} pago{payments.length !== 1 ? 's' : ''}
           </Badge>
         )}
       </div>
 
       {payments.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          <Calendar className="h-12 w-12 mx-auto mb-3 opacity-50" />
-          <p>No hay pagos pendientes</p>
-          <p className="text-sm mt-1">¡Todo al día! 🎉</p>
+        <div className="text-center py-6 sm:py-8 text-muted-foreground">
+          <Calendar className="h-10 w-10 sm:h-12 sm:w-12 mx-auto mb-3 opacity-50" />
+          <p className="text-sm sm:text-base">No hay pagos pendientes</p>
+          <p className="text-xs sm:text-sm mt-1">¡Todo al día! 🎉</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -222,7 +222,7 @@ function PaymentCard({
 
   return (
     <div
-      className={`flex items-center justify-between p-3 rounded-lg border ${
+      className={`flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg border gap-2 sm:gap-0 ${
         urgency === 'overdue'
           ? 'bg-destructive/5 border-destructive'
           : urgency === 'today'
@@ -230,10 +230,10 @@ function PaymentCard({
           : 'bg-card'
       }`}
     >
-      <div className="flex-1">
-        <div className="flex items-center gap-2">
-          <p className="font-medium text-sm">{payment.company || payment.fileName}</p>
-          <Badge variant="outline" className="text-xs">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="font-medium text-sm truncate">{payment.company || payment.fileName}</p>
+          <Badge variant="outline" className="text-xs shrink-0">
             {payment.type}
           </Badge>
         </div>
@@ -244,16 +244,16 @@ function PaymentCard({
           {urgency === 'upcoming' && ` (en ${daysUntil} días)`}
         </p>
       </div>
-      <div className="text-right">
-        <p className="font-bold text-sm">${payment.amount.toLocaleString('es-AR')}</p>
+      <div className="flex items-center justify-between sm:block sm:text-right">
+        <p className="font-bold text-sm sm:text-base">${payment.amount.toLocaleString('es-AR')}</p>
         <Button
           variant="ghost"
           size="sm"
-          className="h-auto py-1 px-2 text-xs mt-1"
+          className="h-auto py-1 px-2 text-xs mt-0 sm:mt-1"
           onClick={() => onMarkAsPaid(payment.documentId)}
         >
-          <Check className="h-3 w-3 mr-1" />
-          Marcar pagado
+          <Check className="h-3 w-3 sm:mr-1" />
+          <span className="hidden sm:inline">Marcar pagado</span>
         </Button>
       </div>
     </div>

@@ -51,10 +51,10 @@ export function MonthComparisonWidget() {
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4">📊 Comparación Mensual</h3>
+      <Card className="p-4 sm:p-6">
+        <h3 className="text-base sm:text-lg font-semibold mb-4">📊 Comparación Mensual</h3>
         <div className="animate-pulse space-y-3">
-          <div className="h-48 bg-muted rounded"></div>
+          <div className="h-40 sm:h-48 bg-muted rounded"></div>
         </div>
       </Card>
     );
@@ -62,14 +62,14 @@ export function MonthComparisonWidget() {
 
   if (!data || data.monthly.length === 0) {
     return (
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Calendar className="h-5 w-5" />
+      <Card className="p-4 sm:p-6">
+        <h3 className="text-base sm:text-lg font-semibold mb-4 flex items-center gap-2">
+          <Calendar className="h-4 w-4 sm:h-5 sm:w-5" />
           Comparación Mensual
         </h3>
-        <div className="text-center py-8 text-muted-foreground">
-          <Calendar className="h-12 w-12 mx-auto mb-3 opacity-50" />
-          <p>No hay suficientes datos para comparar</p>
+        <div className="text-center py-6 sm:py-8 text-muted-foreground">
+          <Calendar className="h-10 w-10 sm:h-12 sm:w-12 mx-auto mb-3 opacity-50" />
+          <p className="text-sm sm:text-base">No hay suficientes datos para comparar</p>
         </div>
       </Card>
     );
@@ -108,14 +108,14 @@ export function MonthComparisonWidget() {
     .filter((item) => item.current > 0 || item.previous > 0);
 
   return (
-    <Card className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          <Calendar className="h-5 w-5" />
+    <Card className="p-4 sm:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0 mb-4 sm:mb-6">
+        <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2">
+          <Calendar className="h-4 w-4 sm:h-5 sm:w-5" />
           Comparación Mensual
         </h3>
         {monthOverMonth && (
-          <Badge variant={monthOverMonth.change >= 0 ? 'destructive' : 'default'}>
+          <Badge variant={monthOverMonth.change >= 0 ? 'destructive' : 'default'} className="self-start sm:self-auto text-xs sm:text-sm">
             {monthOverMonth.change >= 0 ? '+' : ''}
             {monthOverMonth.changePercent}% MoM
           </Badge>
@@ -124,34 +124,34 @@ export function MonthComparisonWidget() {
 
       {/* Comparación mes a mes destacada */}
       {monthOverMonth && previousMonth && currentMonth && (
-        <div className="mb-6 p-4 rounded-lg border bg-muted/30">
-          <div className="flex items-center justify-between mb-4">
+        <div className="mb-4 sm:mb-6 p-3 sm:p-4 rounded-lg border bg-muted/30">
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
             <div className="flex-1">
-              <div className="text-sm text-muted-foreground">{previousMonth.displayMonth}</div>
-              <div className="text-2xl font-bold">
+              <div className="text-xs sm:text-sm text-muted-foreground">{previousMonth.displayMonth}</div>
+              <div className="text-lg sm:text-2xl font-bold">
                 ${monthOverMonth.previous.toLocaleString('es-AR')}
               </div>
             </div>
             <ArrowRight
-              className={`h-8 w-8 mx-4 ${
+              className={`h-5 w-5 sm:h-8 sm:w-8 mx-2 sm:mx-4 shrink-0 ${
                 monthOverMonth.change >= 0 ? 'text-red-500' : 'text-green-500'
               }`}
             />
             <div className="flex-1 text-right">
-              <div className="text-sm text-muted-foreground">{currentMonth.displayMonth}</div>
-              <div className="text-2xl font-bold">
+              <div className="text-xs sm:text-sm text-muted-foreground">{currentMonth.displayMonth}</div>
+              <div className="text-lg sm:text-2xl font-bold">
                 ${monthOverMonth.current.toLocaleString('es-AR')}
               </div>
             </div>
           </div>
           <div className="flex items-center justify-center gap-2">
             {monthOverMonth.change >= 0 ? (
-              <TrendingUp className="h-5 w-5 text-red-500" />
+              <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-red-500" />
             ) : (
-              <TrendingDown className="h-5 w-5 text-green-500" />
+              <TrendingDown className="h-4 w-4 sm:h-5 sm:w-5 text-green-500" />
             )}
             <span
-              className={`text-lg font-bold ${
+              className={`text-sm sm:text-lg font-bold ${
                 monthOverMonth.change >= 0 ? 'text-red-500' : 'text-green-500'
               }`}
             >
@@ -163,18 +163,18 @@ export function MonthComparisonWidget() {
       )}
 
       {/* Gráfico de línea por categoría */}
-      <div className="mb-6">
-        <h4 className="text-sm font-semibold mb-3">Tendencia por Categoría</h4>
-        <ResponsiveContainer width="100%" height={250}>
+      <div className="mb-4 sm:mb-6">
+        <h4 className="text-xs sm:text-sm font-semibold mb-2 sm:mb-3">Tendencia por Categoría</h4>
+        <ResponsiveContainer width="100%" height={200} className="sm:h-[250px]">
           <LineChart data={monthlyWithCategories}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="displayMonth" />
-            <YAxis />
+            <XAxis dataKey="displayMonth" tick={{ fontSize: 10 }} className="sm:text-sm" />
+            <YAxis tick={{ fontSize: 10 }} className="sm:text-sm" />
             <Tooltip
               formatter={(value: number) => `$${value.toLocaleString('es-AR')}`}
               labelStyle={{ color: '#000' }}
             />
-            <Legend />
+            <Legend wrapperStyle={{ fontSize: '12px' }} />
             <Line type="monotone" dataKey="Facturas" stroke="#8b5cf6" strokeWidth={2} />
             <Line type="monotone" dataKey="Servicios" stroke="#3b82f6" strokeWidth={2} />
             <Line type="monotone" dataKey="Impuestos" stroke="#ef4444" strokeWidth={2} />
@@ -184,9 +184,9 @@ export function MonthComparisonWidget() {
       </div>
 
       {/* Gráfico de área total */}
-      <div className="mb-6">
-        <h4 className="text-sm font-semibold mb-3">Gasto Total Mensual</h4>
-        <ResponsiveContainer width="100%" height={200}>
+      <div className="mb-4 sm:mb-6">
+        <h4 className="text-xs sm:text-sm font-semibold mb-2 sm:mb-3">Gasto Total Mensual</h4>
+        <ResponsiveContainer width="100%" height={150} className="sm:h-[200px]">
           <AreaChart data={monthly}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="displayMonth" />
@@ -209,28 +209,28 @@ export function MonthComparisonWidget() {
       {/* Cambios por categoría */}
       {categoryChanges.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold mb-3">Cambios por Categoría (MoM)</h4>
+          <h4 className="text-xs sm:text-sm font-semibold mb-2 sm:mb-3">Cambios por Categoría (MoM)</h4>
           <div className="space-y-2">
             {categoryChanges.map((item) => (
               <div
                 key={item.category}
-                className="flex items-center justify-between p-3 rounded-lg border bg-card"
+                className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-2 sm:p-3 rounded-lg border bg-card gap-2 sm:gap-0"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
                   <div
-                    className={`p-1 rounded ${
+                    className={`p-0.5 sm:p-1 rounded ${
                       item.direction === 'up' ? 'bg-red-100' : 'bg-green-100'
                     }`}
                   >
                     {item.direction === 'up' ? (
-                      <TrendingUp className="h-4 w-4 text-red-600" />
+                      <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 text-red-600" />
                     ) : (
-                      <TrendingDown className="h-4 w-4 text-green-600" />
+                      <TrendingDown className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
                     )}
                   </div>
-                  <div>
-                    <div className="font-medium text-sm">{item.category}</div>
-                    <div className="text-xs text-muted-foreground">
+                  <div className="min-w-0">
+                    <div className="font-medium text-xs sm:text-sm">{item.category}</div>
+                    <div className="text-xs text-muted-foreground truncate">
                       ${item.previous.toLocaleString('es-AR')} → $
                       {item.current.toLocaleString('es-AR')}
                     </div>
@@ -238,7 +238,7 @@ export function MonthComparisonWidget() {
                 </div>
                 <Badge
                   variant={item.direction === 'up' ? 'destructive' : 'default'}
-                  className="font-mono"
+                  className="font-mono text-xs self-start sm:self-auto"
                 >
                   {item.change >= 0 ? '+' : ''}
                   {item.change.toFixed(1)}%
