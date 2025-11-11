@@ -137,7 +137,14 @@ model Document {
   ticket            Ticket?
   driveFile         DriveFile?
 
+  // Nuevas relaciones
+  templateId        String?  // Template usado para procesar este documento
+  template          DocumentTemplate? @relation(fields: [templateId], references: [id])
+  ocrResult         OCRResult?
+  conversations     ExtractionConversation[]
+
   @@index([tenantId, userId]) // Índice compuesto para consultas multi-tenant
+  @@index([templateId])
   @@index([tenantId, status])
   @@index([tenantId, documentType])
   @@index([tenantId, createdAt])
@@ -495,6 +502,205 @@ model LearningRule {
 }
 
 // ==============================================================================
+// SISTEMA DE PLANTILLAS PERSONALIZABLES (Templates)
+// ==============================================================================
+
+// Plantillas de extracción personalizables por usuario
+model DocumentTemplate {
+  id                String   @id @default(cuid())
+  tenantId          String
+  userId            String   // Usuario que creó la plantilla
+
+  // Información básica
+  name              String   // "Tickets de Supermercado", "Facturas Edenor"
+  description       String?
+  documentType      DocumentType?  // Opcional: puede ser template genérico
+
+  // Prompt personalizado ("mini prompt")
+  customPrompt      String   @db.Text  // El usuario puede editar esto
+  systemPrompt      String?  @db.Text  // Prompt del sistema (opcional)
+
+  // Configuración de extracción
+  fields            TemplateField[]  // Campos a extraer
+
+  // Auto-detección
+  autoDetect        Boolean  @default(false)  // Aplicar automáticamente si detecta patrón
+  detectionRules    Json?    // Reglas para auto-detectar (ej: si contiene "EDENOR")
+
+  // Validaciones
+  validationRules   Json?    // Reglas matemáticas, ej: "total = subtotal + iva"
+  requiredFields    String[] // Campos obligatorios
+
+  // Interactividad
+  askIfMissing      Boolean  @default(true)   // Preguntar si falta información
+  allowConversation Boolean  @default(true)   // Permitir refinamiento por chat
+
+  // Estadísticas
+  timesUsed         Int      @default(0)
+  successRate       Float    @default(0.0)
+  avgConfidence     Float    @default(0.0)
+
+  // Metadata
+  isPublic          Boolean  @default(false)  // Compartir con otros usuarios
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relaciones
+  documents         Document[]
+  conversations     ExtractionConversation[]
+
+  @@index([tenantId, userId])
+  @@index([tenantId, documentType])
+  @@index([isPublic, isActive])
+  @@map("document_templates")
+}
+
+// Campos individuales de una plantilla
+model TemplateField {
+  id                String   @id @default(cuid())
+  templateId        String
+
+  // Definición del campo
+  name              String   // nombre_tecnico (ej: "emisor_cuit")
+  label             String   // Nombre amigable (ej: "CUIT del Emisor")
+  description       String?  // Ayuda para el usuario
+
+  // Tipo y validación
+  fieldType         FieldType  // TEXT, NUMBER, DATE, SELECT, etc.
+  isRequired        Boolean  @default(false)
+  isArray           Boolean  @default(false)  // ¿Es un array de valores?
+
+  // Para campos SELECT/MULTI_SELECT
+  options           Json?    // ["opcion1", "opcion2"] o [{ value: "val", label: "Label" }]
+  allowCustom       Boolean  @default(false)  // Permitir valores custom
+
+  // Validaciones específicas
+  validation        Json?    // { min: 0, max: 100, regex: "^\\d{2}-\\d{8}-\\d$" }
+  defaultValue      Json?    // Valor por defecto
+
+  // Extracción
+  extractionHint    String?  // Hint para la IA: "Buscar después de 'CUIT:'"
+  fallbackField     String?  // Campo alternativo si no encuentra este
+
+  // Orden y agrupación
+  order             Int      @default(0)
+  group             String?  // "Emisor", "Receptor", "Totales"
+
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relaciones
+  template          DocumentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+  @@index([fieldType])
+  @@map("template_fields")
+}
+
+// ==============================================================================
+// SISTEMA DE CONVERSACIÓN INTERACTIVA
+// ==============================================================================
+
+// Conversaciones para refinamiento de extracción
+model ExtractionConversation {
+  id                String   @id @default(cuid())
+  documentId        String
+  templateId        String?
+  tenantId          String
+  userId            String
+
+  // Estado
+  status            ConversationStatus @default(ACTIVE)
+
+  // Datos en progreso
+  currentData       Json     // Datos extraídos hasta ahora
+  missingFields     String[] // Campos que faltan
+  uncertainFields   Json?    // Campos con baja confianza
+
+  // Mensajes
+  messages          ConversationMessage[]
+
+  // Metadata
+  startedAt         DateTime @default(now())
+  completedAt       DateTime?
+  updatedAt         DateTime @updatedAt
+
+  // Relaciones
+  template          DocumentTemplate? @relation(fields: [templateId], references: [id])
+
+  @@index([documentId])
+  @@index([tenantId, userId])
+  @@index([status])
+  @@map("extraction_conversations")
+}
+
+// Mensajes de la conversación
+model ConversationMessage {
+  id                String   @id @default(cuid())
+  conversationId    String
+
+  // Mensaje
+  role              MessageRole  // USER, ASSISTANT, SYSTEM
+  content           String   @db.Text
+
+  // Contexto
+  fieldName         String?  // Campo sobre el que pregunta
+  suggestedValue    Json?    // Valor sugerido por la IA
+  confidence        Float?   // Confianza en la sugerencia
+
+  // Metadata
+  createdAt         DateTime @default(now())
+
+  // Relaciones
+  conversation      ExtractionConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([role])
+  @@map("conversation_messages")
+}
+
+// ==============================================================================
+// SISTEMA OCR SEPARADO
+// ==============================================================================
+
+// Resultados del OCR (capa separada antes de extracción)
+model OCRResult {
+  id                String   @id @default(cuid())
+  documentId        String   @unique
+  tenantId          String
+
+  // Proveedor usado
+  provider          OCRProvider  // GOOGLE_VISION, TESSERACT, DIRECT_PDF
+
+  // Resultados
+  rawText           String   @db.Text  // Texto completo extraído
+  confidence        Float?   // Confianza general del OCR
+
+  // Metadatos del OCR
+  language          String?  // Idioma detectado
+  pageCount         Int?
+  hasHandwriting    Boolean  @default(false)
+  imageQuality      String?  // LOW, MEDIUM, HIGH
+
+  // Resultados estructurados (opcional)
+  blocks            Json?    // Bloques de texto con coordenadas
+  words             Json?    // Palabras individuales
+
+  // Performance
+  processingTime    Int?     // ms
+  costEstimate      Float?   // USD
+
+  // Metadata
+  createdAt         DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([provider])
+  @@map("ocr_results")
+}
+
+// ==============================================================================
 // INTEGRACIÓN GOOGLE DRIVE
 // ==============================================================================
 
@@ -708,5 +914,43 @@ enum LearningRuleType {
   REGEX         // Transformación con regex
   MAPPING       // Mapeo de valores (diccionario)
   CALCULATION   // Cálculo basado en otros campos
+}
+
+enum FieldType {
+  TEXT          // Texto libre
+  NUMBER        // Número
+  DATE          // Fecha
+  DATETIME      // Fecha y hora
+  BOOLEAN       // Verdadero/Falso
+  SELECT        // Una opción de varias
+  MULTI_SELECT  // Múltiples opciones
+  EMAIL         // Email
+  PHONE         // Teléfono
+  URL           // URL
+  CURRENCY      // Monto monetario
+  PERCENTAGE    // Porcentaje
+  CUIT          // CUIT argentino
+  JSON          // JSON libre
+}
+
+enum ConversationStatus {
+  ACTIVE        // Conversación en curso
+  COMPLETED     // Completada exitosamente
+  CANCELLED     // Cancelada por el usuario
+  TIMEOUT       // Timeout sin respuesta
+}
+
+enum MessageRole {
+  USER          // Mensaje del usuario
+  ASSISTANT     // Respuesta de la IA
+  SYSTEM        // Mensaje del sistema
+}
+
+enum OCRProvider {
+  GOOGLE_VISION     // Google Cloud Vision API
+  TESSERACT         // Tesseract OCR
+  DIRECT_PDF        // Extracción directa de PDF (sin OCR)
+  AZURE_VISION      // Azure Computer Vision
+  AWS_TEXTRACT      // AWS Textract
 }
 
