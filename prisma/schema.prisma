@@ -1,0 +1,341 @@
+// Prisma schema para sistema de procesamiento de documentos financieros MULTI-TENANT
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // Supabase connection string format:
+  // postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres?schema=public
+}
+
+// TENANT/ORGANIZACIÓN - Sistema multi-tenant
+model Tenant {
+  id            String    @id @default(cuid())
+  name          String
+  slug          String    @unique // Para URLs: cliente1.sistema.com
+  subdomain     String?   @unique // Subdominio opcional
+  customDomain  String?   @unique // Dominio personalizado
+  
+  // Configuración
+  plan          TenantPlan @default(FREE)
+  isActive      Boolean   @default(true)
+  settings      Json?     // Configuraciones específicas del tenant
+  
+  // Límites del plan
+  maxUsers      Int       @default(5)
+  maxDocuments  Int       @default(100)
+  maxStorageGB  Int       @default(1)
+  
+  // Metadata
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relaciones
+  users         TenantUser[]
+  documents     Document[]
+  integrations  Integration[]
+  automations   Automation[]
+  
+  @@index([slug])
+  @@index([subdomain])
+  @@index([isActive])
+  @@map("tenants")
+}
+
+// Relación muchos a muchos entre Users y Tenants
+model TenantUser {
+  id            String    @id @default(cuid())
+  tenantId      String
+  userId        String
+  role          TenantRole @default(MEMBER)
+  
+  // Metadata
+  joinedAt      DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relaciones
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+  @@map("tenant_users")
+}
+
+// Usuarios del sistema (ahora multi-tenant)
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relaciones
+  tenantUsers   TenantUser[]
+  documents     Document[]
+  feedbacks     DocumentFeedback[]
+  
+  @@map("users")
+}
+
+// Documentos procesados (multi-tenant)
+model Document {
+  id                String      @id @default(cuid())
+  tenantId          String      // MULTI-TENANT: Aislado por tenant
+  userId            String
+  fileName          String
+  fileUrl           String
+  fileSize          Int
+  mimeType          String
+  
+  // Estado del procesamiento
+  status            DocumentStatus @default(QUEUED)
+  jobId             String?      @unique
+  
+  // Clasificación
+  documentType      DocumentType?
+  subtype           String?
+  confidence        Float?
+  classificationReason String?
+  
+  // Datos extraídos (JSON)
+  extractedData     Json?
+  
+  // Validación
+  validationStatus  ValidationStatus @default(PENDING)
+  validatedAt       DateTime?
+  validatedBy       String?
+  
+  // Metadata
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  processedAt       DateTime?
+  
+  // Retry
+  retryCount        Int         @default(0)
+  errorMessage      String?
+  
+  // Relaciones
+  tenant            Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedbacks         DocumentFeedback[]
+  exports           ExportLog[]
+  
+  @@index([tenantId, userId]) // Índice compuesto para consultas multi-tenant
+  @@index([tenantId, status])
+  @@index([tenantId, documentType])
+  @@index([tenantId, createdAt])
+  @@index([jobId])
+  @@map("documents")
+}
+
+// Feedback de usuario para aprendizaje
+model DocumentFeedback {
+  id              String   @id @default(cuid())
+  documentId      String
+  userId          String
+  
+  // Correcciones realizadas
+  corrections     Json     // Array de { field, originalValue, correctedValue, correctionType }
+  
+  // Metadata
+  createdAt       DateTime @default(now())
+  
+  // Relaciones
+  document        Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([documentId])
+  @@index([userId])
+  @@map("document_feedbacks")
+}
+
+// Integraciones con servicios externos (multi-tenant)
+model Integration {
+  id              String   @id @default(cuid())
+  tenantId        String   // MULTI-TENANT: Aislado por tenant
+  userId          String
+  provider        IntegrationProvider
+  accessToken     String   // Encriptar en aplicación (Supabase no soporta @encrypted)
+  refreshToken    String?
+  expiresAt       DateTime?
+  
+  // Configuración
+  config          Json?    // Configuración específica del proveedor
+  
+  // Metadata
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relaciones
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  exports         ExportLog[]
+  
+  @@unique([tenantId, userId, provider]) // Una integración por tenant, user y provider
+  @@index([tenantId])
+  @@index([tenantId, userId])
+  @@map("integrations")
+}
+
+// Automatizaciones configuradas (multi-tenant)
+model Automation {
+  id              String   @id @default(cuid())
+  tenantId        String   // MULTI-TENANT: Aislado por tenant
+  userId          String
+  name            String
+  description     String?
+  
+  // Reglas
+  trigger         Json     // Configuración del trigger
+  actions         Json     // Array de acciones
+  
+  // Estado
+  enabled         Boolean  @default(true)
+  
+  // Metadata
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relaciones
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  executions      AutomationExecution[]
+  
+  @@index([tenantId, userId])
+  @@index([tenantId, enabled])
+  @@map("automations")
+}
+
+// Ejecuciones de automatizaciones
+model AutomationExecution {
+  id              String   @id @default(cuid())
+  automationId    String
+  documentId      String?
+  
+  // Resultado
+  status          ExecutionStatus @default(PENDING)
+  result          Json?
+  errorMessage    String?
+  
+  // Metadata
+  executedAt      DateTime @default(now())
+  
+  // Relaciones
+  automation      Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  
+  @@index([automationId])
+  @@index([status])
+  @@index([executedAt])
+  @@map("automation_executions")
+}
+
+// Logs de exportación
+model ExportLog {
+  id              String   @id @default(cuid())
+  documentId      String
+  integrationId   String
+  destination     String   // URL o path del archivo exportado
+  format          ExportFormat
+  status          ExportStatus @default(PENDING)
+  errorMessage    String?
+  
+  // Metadata
+  exportedAt      DateTime @default(now())
+  
+  // Relaciones
+  document        Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  integration     Integration  @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  
+  @@index([documentId])
+  @@index([integrationId])
+  @@index([exportedAt])
+  @@map("export_logs")
+}
+
+// Enums
+enum DocumentStatus {
+  QUEUED
+  PROCESSING
+  CLASSIFYING
+  EXTRACTING
+  VALIDATING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum DocumentType {
+  FACTURA_A
+  FACTURA_B
+  FACTURA_C
+  FACTURA_E
+  FACTURA_M
+  SERVICIO_LUZ
+  SERVICIO_GAS
+  SERVICIO_AGUA
+  SERVICIO_INTERNET
+  SERVICIO_TELEFONIA
+  SERVICIO_CABLE
+  IMPUESTO_ARBA
+  IMPUESTO_ABL
+  IMPUESTO_PATENTE
+  IMPUESTO_IIBB
+  IMPUESTO_MONOTRIBUTO
+  IMPUESTO_GANANCIAS
+  RESUMEN_TARJETA
+  OTRO
+}
+
+enum ValidationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EDITED
+}
+
+enum IntegrationProvider {
+  GOOGLE_SHEETS
+  GOOGLE_DRIVE
+  MICROSOFT_EXCEL
+  MICROSOFT_ONEDRIVE
+  DROPBOX
+}
+
+enum ExportFormat {
+  GOOGLE_SHEETS
+  EXCEL
+  CSV
+  JSON
+}
+
+enum ExportStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// Enums para multi-tenancy
+enum TenantPlan {
+  FREE
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum TenantRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
