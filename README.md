@@ -1,19 +1,34 @@
-# Sistema de Procesamiento de Documentos Financieros - Multi-Tenant 🚀
+# 📄 Financial Document Processor
 
-Sistema completo y autogestivo de procesamiento de documentos financieros argentinos con arquitectura multi-tenant, UI completa, automatizaciones, exportaciones y CI/CD.
+Sistema inteligente de procesamiento de documentos financieros argentinos con IA y arquitectura multi-tenant.
 
 ## ✨ Características Principales
 
-- ✅ **Extractores Especializados**: Facturas, Servicios, Impuestos, Tarjetas
-- ✅ **UI Completa**: Dashboard, Validación Interactiva, Gestión de Documentos
-- ✅ **Exportaciones**: Google Sheets, Excel (con OAuth integrado)
-- ✅ **Automatizaciones**: Motor completo de triggers y acciones
-- ✅ **Dashboard con Estadísticas**: KPIs, gráficos, tendencias
-- ✅ **Multi-Tenant**: Aislamiento completo por tenant
-- ✅ **Docker Ready**: Dockerfile y docker-compose configurados
-- ✅ **CI/CD**: GitHub Actions configurado
-- ✅ **Tests**: Unitarios e integración
-- ✅ **Documentación Completa**: API, Usuario, Deployment
+- 🤖 **Clasificación Automática** con GPT-4o Vision
+- 📊 **Extracción de Datos** especializada por tipo de documento (Facturas, Servicios, Impuestos, Tarjetas)
+- ✅ **Validación Interactiva** con correcciones en tiempo real
+- 🔄 **Sistema de Aprendizaje** que mejora con el feedback de usuarios
+- 📈 **Dashboard Avanzado** con analytics, comparativas y alertas de vencimientos
+- ☁️ **3 Integraciones Cloud**: Google Sheets, Microsoft OneDrive, Dropbox
+- 📱 **Mobile-First** completamente responsive
+- ⚡ **Worker Escalable** para procesamiento en paralelo
+- 🔴 **Real-Time Updates** con Server-Sent Events
+- 🎯 **Monitoreo Completo** con Sentry y métricas de performance
+
+## 🚀 Deploy Rápido
+
+Para deployar a producción con todas las integraciones configuradas:
+
+👉 **[Ver Guía Completa de Deployment](./DEPLOYMENT_GUIDE.md)** 👈
+
+La guía incluye configuración paso a paso de:
+- Supabase (Base de datos)
+- Upstash Redis (Cola)
+- Google OAuth (Sheets)
+- Microsoft OAuth (OneDrive/Excel)
+- Dropbox OAuth
+- Sentry (Monitoreo)
+- Deploy a Vercel
 
 ## 🏗️ Arquitectura Multi-Tenant
 
@@ -26,17 +41,13 @@ Este sistema está diseñado para soportar múltiples clientes (tenants) de form
 
 ## 🚀 Stack Tecnológico
 
-- **Frontend**: Next.js 14+ (App Router), React, TypeScript, Tailwind CSS, Shadcn/UI
-- **Backend**: Next.js API Routes, Prisma ORM
+- **Frontend**: Next.js 14+ (App Router), React, TypeScript, Tailwind CSS
+- **Backend**: Next.js API Routes, Server Actions
 - **Database**: Supabase (PostgreSQL)
 - **Cache & Queue**: Redis + Bull
-- **Storage**: Vercel Blob
+- **Storage**: Vercel Blob / Supabase Storage
 - **AI**: OpenAI GPT-4o Vision
-- **Charts**: Recharts
-- **Forms**: React Hook Form + Zod
-- **Testing**: Jest + React Testing Library
-- **CI/CD**: GitHub Actions
-- **Containerization**: Docker + Docker Compose
+- **ORM**: Prisma
 
 ## 📋 Requisitos Previos
 
@@ -210,86 +221,29 @@ Todos los modelos sensibles incluyen `tenantId`:
 
 ## 🚀 Despliegue
 
-### Opción 1: Docker (Recomendado para desarrollo)
+### Vercel (Recomendado)
+
+1. Conecta tu repositorio a Vercel
+2. Configura las variables de entorno
+3. Deploy automático
+
+### Docker
 
 ```bash
-# Copiar variables de entorno
-cp .env.example .env
-# Editar .env con tus credenciales
-
-# Iniciar todos los servicios
 docker-compose up -d
-
-# Ver logs
-docker-compose logs -f app
-
-# Ejecutar migraciones
-docker-compose exec app npx prisma migrate deploy
 ```
 
-### Opción 2: Vercel (Recomendado para producción)
+## 📝 API Documentation
 
-```bash
-# Instalar Vercel CLI
-npm i -g vercel
+### Endpoints principales:
 
-# Deploy
-vercel --prod
-```
-
-Ver la [**Guía de Deployment**](./docs/DEPLOYMENT_GUIDE.md) completa para más detalles.
-
-## 🧪 Tests
-
-```bash
-# Ejecutar tests en modo watch
-npm test
-
-# Ejecutar tests una vez (CI)
-npm run test:ci
-
-# Type checking
-npm run type-check
-
-# Linter
-npm run lint
-```
-
-## 📝 Documentación
-
-### Documentación Completa
-
-- 📖 **[API Documentation](./docs/API_DOCUMENTATION.md)** - Referencia completa de la API
-- 👤 **[User Guide](./docs/USER_GUIDE.md)** - Guía de usuario paso a paso
-- 🚀 **[Deployment Guide](./docs/DEPLOYMENT_GUIDE.md)** - Guía de deployment en producción
-- 🏗️ **[Multi-Tenant Setup](./MULTI_TENANT.md)** - Configuración multi-tenant
-- 🗄️ **[Supabase Setup](./SETUP_SUPABASE.md)** - Configuración de Supabase
-
-### Endpoints Principales
-
-#### Documentos
 - `POST /api/upload` - Subir documentos
 - `GET /api/documents` - Listar documentos
 - `GET /api/documents/[id]` - Obtener documento
+- `PATCH /api/documents/[id]` - Actualizar documento
 - `POST /api/documents/[id]/validate` - Validar documento
-
-#### Estadísticas
-- `GET /api/stats` - Obtener estadísticas y KPIs
-
-#### Exportaciones
-- `POST /api/exports/sheets` - Exportar a Google Sheets
-- `POST /api/exports/excel` - Exportar a Excel
-
-#### Integraciones
-- `GET /api/integrations` - Listar integraciones
-- `POST /api/integrations` - Crear integración
-- `GET /api/integrations/google/auth` - Iniciar OAuth Google
-
-#### Automatizaciones
-- `GET /api/automations` - Listar automatizaciones
-- `POST /api/automations` - Crear automatización
-- `PATCH /api/automations/[id]` - Actualizar automatización
-- `DELETE /api/automations/[id]` - Eliminar automatización
+- `POST /api/tenants` - Crear tenant (admin)
+- `GET /api/tenants` - Obtener información del tenant
 
 Todos los endpoints requieren validación de tenant.
 
