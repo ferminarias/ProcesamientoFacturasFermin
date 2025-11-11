@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateTenant } from '@/lib/middleware/tenant.middleware';
 import { prisma } from '@/lib/database/prisma.client';
 import { GoogleSheetsExporter } from '@/lib/services/exporters/googleSheets.exporter';
+import { decrypt } from '@/lib/utils/encryption';
 
 export async function POST(request: NextRequest) {
   try {
@@ -54,10 +55,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Export to Google Sheets
+    // Export to Google Sheets (decrypt tokens)
     const exporter = new GoogleSheetsExporter({
-      accessToken: integration.accessToken,
-      refreshToken: integration.refreshToken || undefined,
+      accessToken: decrypt(integration.accessToken), // ✅ Desencriptado
+      refreshToken: integration.refreshToken ? decrypt(integration.refreshToken) : undefined, // ✅ Desencriptado
     });
 
     await exporter.exportDocuments(documents as any, spreadsheetId);

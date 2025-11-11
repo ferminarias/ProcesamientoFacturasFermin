@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateTenant } from '@/lib/middleware/tenant.middleware';
 import { prisma } from '@/lib/database/prisma.client';
+import { encrypt } from '@/lib/utils/encryption';
 
 export async function GET(request: NextRequest) {
   try {
@@ -62,13 +63,13 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Create new integration
+    // Create new integration with encrypted tokens
     const integration = await prisma.integration.create({
       data: {
         tenantId,
         provider,
-        accessToken,
-        refreshToken,
+        accessToken: encrypt(accessToken), // ✅ Encriptado
+        refreshToken: refreshToken ? encrypt(refreshToken) : null, // ✅ Encriptado
         isActive: true,
       },
       select: {
